@@ -1,37 +1,50 @@
 # Industrial Vision Inspector
 
-A real-time vision inspection and product classification system designed for industrial conveyor lines. The system integrates a PyTorch-based deep learning inference engine (EfficientNet-B4) with edge devices (Raspberry Pi) via TCP socket communication and provides an operator desktop interface built with Tkinter.
+A real-time vision inspection and product classification system designed for industrial poultry processing and conveyor sorting lines. The system couples a PyTorch deep learning inference engine (EfficientNet-B4) with edge devices (such as a Raspberry Pi with a camera module) via standard TCP socket communication, managed through a Tkinter desktop operator dashboard.
 
 ---
 
 ## Overview
 
-Industrial Vision Inspector captures product images from an edge camera module (such as a Raspberry Pi positioned over a conveyor belt), performs real-time classification using a convolutional neural network, and returns the classification results to downstream automation hardware (e.g., pneumatic sorting arms, PLCs) while logging all inspection data for quality auditing.
+Industrial Vision Inspector captures product images from an edge camera unit positioned over a conveyor belt, performs real-time classification across distinct poultry cut categories, and returns the classification results to downstream automation hardware (e.g., pneumatic sorting kickers, PLCs, or status indicators). All inference transactions, confidence scores, and visual previews are indexed into a persistent Excel audit log.
 
 ---
 
 ## Key Features
 
 - **Dual Operating Modes:**
-  - **Online Mode:** Starts a TCP server socket on port `5001` to receive images directly from edge devices and returns inference results via port `6000`.
-  - **Offline Mode:** Continuously monitors a local directory for incoming image files and processes them sequentially.
-- **Deep Learning Inference:** Utilizes a customized `EfficientNet-B4` architecture trained on poultry part categories, running on CUDA-enabled GPUs or CPU fallbacks.
-- **Auditory Feedback:** Dispatches class-specific audio cues asynchronously to alert operators on the production line without blocking UI or processing loops.
-- **Data Logging and Export:** Records timestamps, image filenames, predicted labels, and confidence scores into an Excel spreadsheet (`prediction_log.xlsx`).
-- **Active Error Flagging:** Allows operators to flag false-positive predictions directly from the interface, copying the misclassified sample to a dedicated folder for dataset refinement and retraining.
+  - **Online Mode (Socket Active):** Starts a TCP server socket on port `5001` to receive image byte streams directly from edge units and transmits inference labels back to the device on port `6000`.
+  - **Offline Mode (Folder Watch):** Monitors a local staging directory (`data/received_images/`) and automatically classifies images as they are added.
+- **Deep Learning Inference:** Custom classifier head built on `EfficientNet-B4` running with hardware acceleration on NVIDIA GPUs (CUDA) or automated CPU fallbacks.
+- **Pretrained Checkpoint Ready:** Includes a pre-trained weights file (`best_model.pth`) directly inside the repository for immediate testing and out-of-the-box trials.
+- **Auditory Operator Feedback:** Dispatches class-specific audio alerts asynchronously (`.wav`) via non-blocking worker threads.
+- **Audit Logging & Analytics:** Automatically appends timestamps, filenames, predicted classes, and confidence scores into an Excel spreadsheet (`prediction_log.xlsx`).
+- **Active Error Flagging:** Allows quality inspectors to flag misclassified items with one click, copying the image to a designated directory (`data/wrong_classifications/`) for dataset curation and active learning retraining.
+
+---
+
+## Technical Specifications & Image Input
+
+- **Backbone Architecture:** EfficientNet-B4 (`PoultryClassifier`) via PyTorch / Torchvision.
+- **Target Resolution:** Designed and optimized for **$380 \times 380 \times 3$** RGB images (matching EfficientNet-B4 native input resolution).
+- **Inference Pipeline:**
+  - Channel ordering: RGB
+  - Tensor Normalization: ImageNet standard ($\mu = [0.485, 0.456, 0.406]$, $\sigma = [0.229, 0.224, 0.225]$)
+  - Dropout layer: $p = 0.3$ prior to the linear classification layer.
+- **Pretrained Model File:** `best_model.pth` (included in the root repository).
 
 ---
 
 ## Supported Classes
 
-The model is configured to identify the following five poultry cuts:
+The system is configured to classify five primary poultry cuts:
 
 | Class Name | Description | Associated Audio Cue |
 | :--- | :--- | :--- |
-| **Breasts** | Chicken breast fillets | `Breast.wav` |
+| **Breasts** | Chicken breast cuts / fillets | `Breast.wav` |
 | **ButterfliedDrumsticks** | Butterflied drumstick cuts | `ButterfliedDrumsticks.wav` |
-| **Drumsticks** | Whole drumsticks | `Drumsticks.wav` |
-| **WholeLeg** | Whole chicken legs | `WholeLeg.wav` |
+| **Drumsticks** | Whole drumstick pieces | `Drumsticks.wav` |
+| **WholeLeg** | Whole chicken legs (thigh + drumstick) | `WholeLeg.wav` |
 | **Wings** | Whole chicken wings | `Wings.wav` |
 
 ---
@@ -39,27 +52,27 @@ The model is configured to identify the following five poultry cuts:
 ## System Architecture
 
 ```
-+--------------------+      TCP Port 5001       +-------------------------------+
-|    Raspberry Pi    |  ──────────────────────>  |       Host Workstation        |
-|  (Camera Module)   |    Image Transmission    |     (server.py & main.py)     |
-+--------------------+                          +-------------------------------+
-          ^                                                     |
-          |                 TCP Port 6000                       | EfficientNet-B4
-          |               Result Transmission                   v Inference
-          +--------------------------------------       +---------------+
-                                                        | Classifier    |
-                                                        +---------------+
-                                                                |
-                                        +-----------------------+-----------------------+
-                                        v                                               v
-                          [Operator GUI & Audio Alerts]                   [Excel Log & Archive]
++--------------------+        TCP Port 5001        +-------------------------------+
+|    Raspberry Pi    |  ────────────────────────>  |       Host Workstation        |
+|  (Camera Module)   |      Image Data Stream      |     (server.py & main.py)     |
++--------------------+                             +-------------------------------+
+          ^                                                        |
+          |                   TCP Port 6000                        | EfficientNet-B4
+          |                 Prediction String                      v Inference
+          +-----------------------------------------       +---------------+
+                                                           | Classifier    |
+                                                           +---------------+
+                                                                   |
+                                           +-----------------------+-----------------------+
+                                           v                                               v
+                             [Operator GUI & Audio Alerts]                   [Excel Log & Archive]
 ```
 
 ---
 
 ## Repository Structure
 
-```
+```text
 ├── Logo/
 │   └── logo.png                  # Application header logo
 ├── Sounds/
@@ -68,14 +81,15 @@ The model is configured to identify the following five poultry cuts:
 │   ├── Drumsticks.wav
 │   ├── WholeLeg.wav
 │   └── Wings.wav
-├── data/
-│   ├── received_images/          # Incoming image buffer
+├── data/                         # Auto-generated at initial execution
+│   ├── received_images/          # Staging buffer for incoming inspection images
 │   ├── output/
-│   │   └── prediction_log.xlsx   # Output log storing historical predictions
+│   │   └── prediction_log.xlsx   # Historical inspection log spreadsheet
 │   └── wrong_classifications/    # Manually flagged misclassified images
 ├── audio_player.py               # Asynchronous audio playback worker
+├── best_model.pth                # Pretrained PyTorch model checkpoint
 ├── config.py                     # Centralized settings, network ports, and path resolvers
-├── model.py                      # PyTorch EfficientNet-B4 model wrapper
+├── model.py                      # PyTorch EfficientNet-B4 inference module
 ├── server.py                     # Low-level TCP socket networking routines
 ├── main.py                       # Tkinter GUI and orchestration thread
 └── README.md                     # Project documentation
@@ -87,15 +101,15 @@ The model is configured to identify the following five poultry cuts:
 
 ### 1. Requirements
 
-- Python 3.8 or newer
-- NVIDIA GPU with CUDA support (recommended for high throughput; CPU is supported)
-- Windows, Linux, or macOS
+- Python 3.9 or newer (Python 3.9 – 3.12 recommended)
+- Operating System: Windows 10/11 (fully supported with audio alerts), Linux, or macOS
+- Dedicated NVIDIA GPU with CUDA support recommended for industrial line throughput; standard CPU is supported.
 
 ### 2. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/industrial-vision-inspector.git
-cd industrial-vision-inspector
+git clone https://github.com/AbdurrahmanCoskun97/Chicken_Classification_Project
+cd Chicken_Classification_Project
 ```
 
 ### 3. Set Up a Virtual Environment
@@ -113,8 +127,32 @@ source venv/bin/activate
 
 ### 4. Install Dependencies
 
+Select either the **GPU** or **CPU** configuration depending on your hardware environment:
+
+#### Option A: GPU (NVIDIA CUDA Acceleration) — *Recommended for Production*
 ```bash
-pip install torch torchvision pandas pillow openpyxl
+# Install core dependencies
+pip install pillow pandas openpyxl
+
+# Install PyTorch with CUDA 12.1 support
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# (Optional: for legacy CUDA 11.8 environments, use 'cu118' instead)
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+Verify GPU availability in your environment:
+```bash
+python -c "import torch; print('CUDA Available:', torch.cuda.is_available())"
+```
+
+#### Option B: CPU Only — *For Development and Low-Throughput Testing*
+```bash
+# Install core dependencies
+pip install pillow pandas openpyxl
+
+# Install PyTorch (CPU-only build)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 ```
 
 ---
@@ -128,34 +166,44 @@ pip install torch torchvision pandas pillow openpyxl
    ```
 
 2. **Load Model Weights:**
-   - Click the **"Model Seç (.pth)"** (Select Model) button in the lower toolbar.
-   - Choose a trained weights file (`.pth` or `.pt`).
+   - Click the **"Load Model (.pth)"** button in the lower toolbar.
+   - Select the pre-trained weights file **`best_model.pth`** provided in the repository root directory (or choose a custom trained `.pth` checkpoint).
 
 3. **Select Operating Mode:**
-   - **Online Mode:** Enter the IP address of the destination Raspberry Pi. The server listens on port `5001` for images and transmits results back to the device on port `6000`.
-   - **Offline Mode:** Toggle the mode button to **"Mod: Offline"**. The system will scan the selected input directory and evaluate images as they appear.
+   - **Online Mode:** Enter the IP address of the target Raspberry Pi into the top IP input field. Ensure the mode button reads **"Mode: Online (Socket Active)"**. The host listens on port `5001` for images and transmits results back to the remote device on port `6000`.
+   - **Offline Mode:** Click the mode button to toggle to **"Mode: Offline (Folder Watch)"**. Place or stream $380 \times 380$ images directly into the `data/received_images/` folder to be processed automatically.
 
 4. **Start Inspection:**
-   - Click the green **"Başlat"** (Start) button to begin the worker loop.
-   - Click **"Durdur"** (Stop) at any time to pause inspection and close open sockets.
+   - Click the green **"Start"** button to start the background worker thread.
+   - Live camera captures, predicted labels, and confidence bars will update in real-time.
+   - Click **"Stop"** at any time to pause inspection and close open sockets.
 
 5. **Flagging Classification Errors:**
-   - Select an entry in the inspection log table.
-   - Click **"Hatalı Olarak İşaretle"** (Mark as Incorrect) to copy the raw image into the `wrong_classifications/` directory for model re-training.
+   - Select the corresponding item in the historical inspection table.
+   - Click **"Mark as Incorrect"** to copy the image into the `data/wrong_classifications/` folder for subsequent dataset refinement.
+
+---
+
+## Network Protocol Details
+
+| Direction | Socket / Role | Default Port | Payload |
+| :--- | :--- | :--- | :--- |
+| **Client $\rightarrow$ Server** | Server Socket (`server.py`) | `5001` | Raw binary image stream (`.jpg` / `.png`) |
+| **Server $\rightarrow$ Client** | Client Socket (`server.py`) | `6000` | Plaintext UTF-8 string (e.g., `Drumsticks`) |
 
 ---
 
 ## Configuration (`config.py`)
 
-Key parameters can be adjusted directly in `config.py`:
+Central system parameters can be modified directly in `config.py`:
 
 ```python
 # Network Parameters
 IMAGE_PORT = 5001              # Port for incoming image streams
 SEND_BACK_PORT = 6000          # Port for returning classification labels
-DEFAULT_RASPBERRY_IP = "0.0.0.0" # Target device IP address
+DEFAULT_RASPBERRY_IP = "0.0.0.0" # Target Raspberry Pi IP address
 
-# Classification Target Names
+# Target Classes
 CLASS_NAMES = ['Breasts', 'ButterfliedDrumsticks', 'Drumsticks', 'WholeLeg', 'Wings']
 ```
 
@@ -163,18 +211,18 @@ CLASS_NAMES = ['Breasts', 'ButterfliedDrumsticks', 'Drumsticks', 'WholeLeg', 'Wi
 
 ## Excel Log Format
 
-All inference entries are appended to `data/output/prediction_log.xlsx`:
+Every processed inspection item is appended to `data/output/prediction_log.xlsx`:
 
 | Timestamp | Image | Prediction | Confidence |
 | :--- | :--- | :--- | :--- |
-| 14:23:05 05/10/2026 | image_1791206585.jpg | Drumsticks | 0.9412 |
-| 14:23:08 05/10/2026 | image_1791206588.jpg | Wings | 0.8875 |
+| 2026-10-05 14:23:05 | image_1791206585.jpg | Drumsticks | 0.9412 |
+| 2026-10-05 14:23:08 | image_1791206588.jpg | Wings | 0.8875 |
 
 ---
 
-## Packaging as Standalone Executable
+## Packaging as Standalone Executable (Windows)
 
-To build a standalone Windows binary with PyInstaller:
+To build a standalone executable distribution for operator stations without installing Python:
 
 ```bash
 pip install pyinstaller
@@ -184,18 +232,6 @@ pyinstaller --noconfirm --onedir --windowed \
     main.py
 ```
 
----
-
-## Contributing
-
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/NewFeature`).
-3. Commit your changes (`git commit -m 'Add NewFeature'`).
-4. Push to the branch (`git push origin feature/NewFeature`).
-5. Open a Pull Request.
+*Note: After building, ensure `best_model.pth` is placed in the executable directory or loaded manually via the GUI file picker.*
 
 ---
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
